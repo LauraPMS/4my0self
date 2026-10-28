@@ -1,0 +1,57 @@
+stages:
+  - lint
+  - security
+  - test
+  - build
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  POSTGRES_DB: test_db
+  POSTGRES_USER: test_user
+  POSTGRES_PASSWORD: test_password
+  DATABASE_URL: postgres://test_user:test_password@postgres:5432/test_db
+
+cache:
+  paths:
+    - .cargo/
+    - target/
+
+# 1. Vérification du formatage et linters stricts
+clippy_and_fmt:
+  stage: lint
+  image: rust:1.80
+  script:
+    - rustup component add clippy rustfmt
+    - cargo fmt -- --check
+    - cargo clippy -- -D warnings
+
+# 2. Analyse statique des vulnérabilités de dépendances
+dependency_audit:
+  stage: security
+  image: rust:1.80
+  before_script:
+    - cargo install cargo-audit
+  script:
+    - cargo audit
+
+# 3. Tests d'intégration avec service Postgres dédié
+integration_tests:
+  stage: test
+  image: rust:1.80
+  services:
+    - postgres:16-alpine
+  variables:
+    POSTGRES_HOST_AUTH_METHOD: trust
+  script:
+    - cargo test --verbose
+
+# 4. Construction de l'image Docker
+build_image:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  only:
+    - main
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
